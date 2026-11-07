@@ -1,174 +1,196 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Lab 項目列表</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Main Hub & Directory</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      max-width: 800px;
-      margin: 40px auto;
-      padding: 0 20px;
-      line-height: 1.6;
-    }
-    .controls {
-      margin-bottom: 20px;
-      display: flex;
-      gap: 15px;
-      align-items: center;
-    }
-    select, button {
-      padding: 8px 12px;
-      font-size: 14px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
-    ul {
-      list-style-type: none;
+      margin: 0;
       padding: 0;
+      display: flex;
+      height: 100vh;
+      background: #f4f6f8;
+      color: #333;
     }
-    li {
+    .sidebar {
+      width: 320px;
+      background: #ffffff;
+      border-right: 1px solid #e1e4e8;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    h1 {
+      font-size: 1.2rem;
+      margin-top: 0;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #0969da;
+    }
+    .page-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .page-item {
+      margin-bottom: 8px;
+    }
+    .page-link {
+      display: block;
+      padding: 10px 14px;
       background: #f8f9fa;
-      margin-bottom: 10px;
-      padding: 15px 20px;
-      border-radius: 8px;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      text-decoration: none;
+      color: #0969da;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .page-link:hover, .page-link.active {
+      background: #0969da;
+      color: #ffffff;
+      border-color: #0969da;
+    }
+    .preview-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+    }
+    .preview-header {
+      padding: 12px 20px;
+      background: #ffffff;
+      border-bottom: 1px solid #e1e4e8;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      font-size: 0.9rem;
     }
-    .item-name {
-      font-weight: bold;
+    .external-btn {
+      padding: 6px 12px;
+      background: #2da44e;
+      color: white;
       text-decoration: none;
-      color: #0969da;
+      border-radius: 6px;
+      font-weight: 500;
     }
-    .item-name:hover {
-      text-decoration: underline;
+    .external-btn:hover { background: #2c974b; }
+    iframe {
+      width: 100%;
+      flex: 1;
+      border: none;
+      background: #ffffff;
     }
-    .item-date {
+    .loading-text, .error-text {
       color: #6e7781;
-      font-size: 0.9em;
+      font-size: 0.9rem;
     }
   </style>
 </head>
 <body>
 
-  <h1>Lab Projects</h1>
-
-  <div class="controls">
-    <label for="sortSelect">排序方式：</label>
-    <select id="sortSelect">
-      <option value="date-desc">日期 (由新到舊)</option>
-      <option value="date-asc">日期 (由舊到新)</option>
-      <option value="name-asc">名稱 (A -> Z)</option>
-      <option value="name-desc">名稱 (Z -> A)</option>
-    </select>
+  <div class="sidebar">
+    <h1>Pages Directory</h1>
+    <ul id="pageList" class="page-list">
+      <li class="loading-text">Scanning HTML files...</li>
+    </ul>
   </div>
 
-  <ul id="projectList">
-    <li>載入中...</li>
-  </ul>
+  <div class="preview-container">
+    <div class="preview-header">
+      <span id="previewTitle">Select a page to preview</span>
+      <a id="openNewTab" href="#" target="_blank" class="external-btn" style="display: none;">Open in New Tab ↗</a>
+    </div>
+    <iframe id="previewFrame" src="about:blank"></iframe>
+  </div>
 
   <script>
-    // 1. 自動獲取當前網址的 GitHub 帳號與 Repo
     const hostParts = window.location.hostname.split('.');
     const pathParts = window.location.pathname.split('/').filter(p => p.length > 0);
 
-    // 預設自動讀取，若在本地 (localhost) 測試則可保留 fallback 備用
     const GITHUB_USER = hostParts[1] === 'github' ? hostParts[0] : 'YOUR_GITHUB_USERNAME';
     const REPO_NAME = pathParts.length > 0 ? pathParts[0] : 'YOUR_REPO_NAME';
-    const LAB_PATH = 'lab';
 
-    let projectsData = [];
-
-    // 2. 解析資料夾名稱（如 "Almost-Perfect_20261102"）
-    function parseFolderName(folderName) {
-      const parts = folderName.split('_');
-      
-      // 取出日期部分
-      const dateRaw = parts.length > 1 ? parts.pop() : '';
-      
-      // 將名字裡的 '-' 換成空格 ' '
-      const rawName = parts.join('_'); 
-      const displayName = rawName.replace(/-/g, ' ');
-
-      // 格式化日期 (20261102 -> 2026-11-02)
-      let formattedDate = dateRaw;
-      if (dateRaw.length === 8) {
-        formattedDate = `${dateRaw.substring(0, 4)}-${dateRaw.substring(4, 6)}-${dateRaw.substring(6, 8)}`;
-      }
-
-      return {
-        raw: folderName,
-        name: displayName,
-        date: formattedDate,
-        dateRaw: dateRaw,
-        path: `./${LAB_PATH}/${folderName}/index.html`
-      };
-    }
-
-    // 3. 呼叫 GitHub API
-    async function fetchLabFolders() {
-      const apiUrl = `https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/${LAB_PATH}`;
+    async function fetchHtmlFiles() {
+      const apiUrl = `https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/`;
       
       try {
         const response = await fetch(apiUrl);
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error(`找不到 ${GITHUB_USER}/${REPO_NAME}/${LAB_PATH}，請確認 Repo 已公開且已 push 上 GitHub。`);
-          }
-          throw new Error(`HTTP 錯誤狀態：${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
         
         const files = await response.json();
 
-        projectsData = files
-          .filter(item => item.type === 'dir')
-          .map(item => parseFolderName(item.name));
+        // 篩選出同層級的 .html 檔案（排除 index.html 自身）
+        const htmlFiles = files.filter(item => 
+          item.type === 'file' && 
+          item.name.endsWith('.html') && 
+          item.name.toLowerCase() !== 'index.html'
+        );
 
-        renderList();
+        renderPageList(htmlFiles);
       } catch (error) {
         console.error(error);
-        document.getElementById('projectList').innerHTML = `<li>讀取失敗：${error.message}</li>`;
+        document.getElementById('pageList').innerHTML = `<li class="error-text">Failed to load pages: ${error.message}</li>`;
       }
     }
 
-    // 4. 排序與繪製
-    function renderList() {
-      const sortValue = document.getElementById('sortSelect').value;
-
-      projectsData.sort((a, b) => {
-        if (sortValue === 'date-desc') {
-          return b.dateRaw.localeCompare(a.dateRaw);
-        } else if (sortValue === 'date-asc') {
-          return a.dateRaw.localeCompare(b.dateRaw);
-        } else if (sortValue === 'name-asc') {
-          return a.name.localeCompare(b.name);
-        } else if (sortValue === 'name-desc') {
-          return b.name.localeCompare(a.name);
-        }
-      });
-
-      const listElement = document.getElementById('projectList');
+    function renderPageList(files) {
+      const listElement = document.getElementById('pageList');
       listElement.innerHTML = '';
 
-      if (projectsData.length === 0) {
-        listElement.innerHTML = '<li>沒有找到任何子項目。</li>';
+      if (files.length === 0) {
+        listElement.innerHTML = '<li class="loading-text">No other HTML files found.</li>';
         return;
       }
 
-      projectsData.forEach(item => {
+      files.forEach((file, index) => {
         const li = document.createElement('li');
-        li.innerHTML = `
-          <a class="item-name" href="${item.path}">${item.name}</a>
-          <span class="item-date">${item.date}</span>
-        `;
+        li.className = 'page-item';
+        
+        // 格式化檔名顯示 (例如 lab.html -> Lab)
+        const cleanName = file.name.replace('.html', '').replace(/-/g, ' ');
+        const displayName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+
+        const a = document.createElement('a');
+        a.className = 'page-link';
+        a.textContent = displayName;
+        a.href = `./${file.name}`;
+        
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          setPreview(`./${file.name}`, displayName);
+          
+          document.querySelectorAll('.page-link').forEach(link => link.classList.remove('active'));
+          a.classList.add('active');
+        });
+
+        li.appendChild(a);
         listElement.appendChild(li);
+
+        // 預設載入第一個 HTML 頁面進行預覽
+        if (index === 0) {
+          a.click();
+        }
       });
     }
 
-    document.getElementById('sortSelect').addEventListener('change', renderList);
-    fetchLabFolders();
+    function setPreview(url, title) {
+      const frame = document.getElementById('previewFrame');
+      const titleElement = document.getElementById('previewTitle');
+      const externalBtn = document.getElementById('openNewTab');
+
+      frame.src = url;
+      titleElement.textContent = `Preview: ${title}`;
+      externalBtn.href = url;
+      externalBtn.style.display = 'inline-block';
+    }
+
+    fetchHtmlFiles();
   </script>
 </body>
 </html>
