@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Almost</title>
+
+  <!-- MediaPipe Hand Tracking Dependencies via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #000000;
+      font-family: "Courier New", "VT323", "MingLiU", monospace;
+      color: #000000;
+      -webkit-font-smoothing: none;
+      font-smooth: never;
+    }
+
+    #mainCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000000;
+    }
+
+    #webcamVideo {
+      display: none;
+    }
+
+    /* Top Left Controls */
+    .top-left-ui {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      z-index: 1000;
+      display: flex;
+      gap: 10px;
+    }
+
+    /* Top Right Controls */
+    .top-right-ui {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      z-index: 1000;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* Windows 95 Style Metallic Buttons */
+    .btn-win {
+      background: #c0c0c0;
+      color: #000000;
+      border-top: 2px solid #ffffff;
+      border-left: 2px solid #ffffff;
+      border-right: 2px solid #404040;
+      border-bottom: 2px solid #404040;
+      padding: 9px 18px;
+      font-family: "Courier New", monospace;
+      font-size: 15px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      cursor: pointer;
+      box-shadow: 1px 1px 0px #000000;
+      outline: none;
+      transition: background 0.1s ease;
+    }
+
+    .btn-win:active {
+      border-top: 2px solid #404040;
+      border-left: 2px solid #404040;
+      border-right: 2px solid #ffffff;
+      border-bottom: 2px solid #ffffff;
+      padding: 10px 17px 8px 19px;
+      box-shadow: none;
+    }
+
+    .btn-win:hover {
+      background: #d4d0c8;
+    }
+
+    .btn-rec.recording {
+      background: #eb3b5a;
+      color: #ffffff;
+      animation: winPulseRec 1s infinite alternate;
+    }
+
+    @keyframes winPulseRec {
+      from { background: #eb3b5a; }
+      to { background: #ff7675; }
+    }
+
+    /* Webcam Status */
+    .webcam-status {
+      background: #c0c0c0;
+      border-top: 2px solid #404040;
+      border-left: 2px solid #404040;
+      border-right: 2px solid #ffffff;
+      border-bottom: 2px solid #ffffff;
+      color: #000080;
+      font-size: 14px;
+      padding: 8px 14px;
+      font-family: "Courier New", monospace;
+      font-weight: bold;
+    }
+
+    .webcam-status.active {
+      color: #008000;
+    }
+
+    /* Bottom System Log Ribbon UI */
+    .bottom-log-ui {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 46px;
+      background: #c0c0c0;
+      border-top: 2px solid #ffffff;
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 12px;
+      box-shadow: 0px -2px 0px #808080;
+      transition: opacity 0.8s ease;
+      display: none;
+    }
+
+    .log-stream-box {
+      flex: 1;
+      height: 30px;
+      background: #ffffff;
+      border-top: 2px solid #808080;
+      border-left: 2px solid #808080;
+      border-right: 2px solid #ffffff;
+      border-bottom: 2px solid #ffffff;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      overflow: hidden;
+    }
+
+    .log-stream-text {
+      font-size: 14px;
+      color: #000080;
+      font-family: "Courier New", monospace;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Glass Shatter Overlay Container */
+    .shatter-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 2000;
+      overflow: hidden;
+      display: none;
+    }
+
+    .shatter-active .shatter-container {
+      display: block;
+    }
+
+    .shatter-shard {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      background: inherit;
+      backdrop-filter: invert(1) contrast(300%) hue-rotate(180deg);
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      animation: shardExplode 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes shardExplode {
+      0% {
+        transform: translate(0, 0) rotate(0deg) scale(1);
+        opacity: 1;
+      }
+      30% {
+        transform: translate(var(--dx1), var(--dy1)) rotate(var(--r1)) scale(1.05);
+        filter: invert(0.8) contrast(400%);
+      }
+      100% {
+        transform: translate(var(--dx3), var(--dy3)) rotate(var(--r3)) scale(0.7);
+        opacity: 0;
+      }
+    }
+
+    .body-shatter-jitter {
+      animation: screenJitter 0.8s steps(2, start) infinite;
+    }
+
+    @keyframes screenJitter {
+      0% { transform: translate(0, 0); }
+      25% { transform: translate(-15px, 10px) skewX(8deg); }
+      50% { transform: translate(12px, -12px) skewY(-6deg); }
+      75% { transform: translate(-8px, -6px); }
+      100% { transform: translate(0, 0); }
+    }
+
+    #photoUploadInput {
+      display: none;
+    }
+  </style>
+</head>
+<body id="bodyRoot" oncontextmenu="return false;">
+
+  <!-- Hidden Video for MediaPipe -->
+  <video id="webcamVideo" playsinline></video>
+  <input type="file" id="photoUploadInput" accept="image/*">
+
+  <!-- Main Canvas Frame Buffer -->
+  <canvas id="mainCanvas"></canvas>
+
+  <!-- Glass Shatter Glitch Overlay -->
+  <div id="shatterOverlay" class="shatter-container"></div>
+
+  <!-- Top Left DOM Controls -->
+  <div class="top-left-ui">
+    <button class="btn-win" id="homeBtn">[ ↺ ]</button>
+  </div>
+
+  <!-- Top Right DOM Controls -->
+  <div class="top-right-ui">
+    <div id="camStatus" class="webcam-status">[ CAM: IDLE ]</div>
+    <button class="btn-win btn-rec" id="recBtn">[🔴]</button>
+  </div>
+
+  <!-- Bottom System Log Ribbon -->
+  <div class="bottom-log-ui" id="logRibbon">
+    <span style="font-size: 14px; font-weight: bold; color: #000000;">[SYS_LOG]</span>
+    <div class="log-stream-box">
+      <div class="log-stream-text" id="logStream">SYSTEM READY. INITIALIZING QUANTUM HAND INTERACTION...</div>
+    </div>
+    <button class="btn-win" id="exportLogBtn">[ 💾 LOG (.TXT) ]</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const webcamVideo = document.getElementById('webcamVideo');
+    const photoUploadInput = document.getElementById('photoUploadInput');
+
+    const homeBtn = document.getElementById('homeBtn');
+    const recBtn = document.getElementById('recBtn');
+    const camStatus = document.getElementById('camStatus');
+    const logRibbon = document.getElementById('logRibbon');
+    const logStream = document.getElementById('logStream');
+    const exportLogBtn = document.getElementById('exportLogBtn');
+
+    // Disable right click globally
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    // App State Workflow: 'SETUP_UPLOAD' -> 'SETUP_QUESTIONS' -> 'MONITORING'
+    let appState = 'SETUP_UPLOAD';
+    let questionStep = 0;
+
+    // Canvas Hitboxes & Hover states
+    let canvasHitboxes = [];
+    let mouseHoverIndex = -1;
+
+    // AI Hand Tracking State - 支持雙手 (Index 0 & 1) 並且紀錄握拳狀態
+    let handsDetector = null;
+    let cameraInstance = null;
+    let handsList = [
+      { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false },
+      { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false }
+    ];
+    let lastHandMoveLogTime = 0;
+    let lastHandDetectedTime = Date.now();
+    let globalShockwave = 0; // 全域震動波剩餘強度
+
+    // Dreamcore Reticle Rotation Angle
+    let dreamcoreAnimAngle = 0;
+
+    // System Logs
+    let systemLogs = [];
+
+    // Particle System & Unlimited Photo Scale Properties
+    let particles = [];
+    let photoScale = 1.0; 
+
+    // Video Recorder
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    // Question Wizard Data
+    const questions = [
+      {
+        stepTag: "MEMORY TIME (1/3)",
+        title: "When does this memory feel like it happened?",
+        options: [
+          { text: "A. Long ago in the past", mode: 'shrink' },
+          { text: "B. Very recently", mode: 'expand' },
+          { text: "C. Stuck in a loop", mode: 'pulse' }
+        ]
+      },
+      {
+        stepTag: "MEMORY ATMOSPHERE (2/3)",
+        title: "How does the air feel inside this memory?",
+        options: [
+          { text: "A. Wild wind dispersion", scatterPower: 260 },
+          { text: "B. Gentle breezes floating", scatterPower: 160 },
+          { text: "C. Soft quiet air", scatterPower: 90 }
+        ]
+      },
+      {
+        stepTag: "MEMORY REACTION (3/3)",
+        title: "What happens when approaches the dream?",
+        options: [
+          { text: "A. Blow far away like dust", windForce: 24 },
+          { text: "B. Scatter loosely around", windForce: 15 },
+          { text: "C. Drift slowly", windForce: 8 }
+        ]
+      }
+    ];
+
+    let physicsConfig = {
+      zoomMode: 'shrink',
+      scatterPower: 180,
+      windForce: 16
+    };
+
+    let dpr = window.devicePixelRatio || 1;
+    function resizeCanvas() {
+      dpr = window.devicePixelRatio || 1;
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.scale(dpr, dpr);
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function addLog(text) {
+      const timestamp = new Date().toISOString().substring(11, 19);
+      const entry = `[${timestamp}] ${text}`;
+      systemLogs.push(entry);
+      if (systemLogs.length > 70) systemLogs.shift();
+      logStream.innerText = entry;
+      if (appState === 'MONITORING') {
+        lastHandDetectedTime = Date.now();
+      }
+      logRibbon.style.opacity = '1.0';
+    }
+
+    function drawWin95RaisedBox(x, y, w, h, bg = '#c0c0c0') {
+      ctx.fillStyle = bg;
+      ctx.fillRect(x, y, w, h);
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + h);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + w, y);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#404040';
+      ctx.beginPath();
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, w, h);
+    }
+
+    function drawWin95SunkenBox(x, y, w, h, bg = '#ece9d8') {
+      ctx.fillStyle = bg;
+      ctx.fillRect(x, y, w, h);
+
+      ctx.strokeStyle = '#808080';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y + h);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x + w, y);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x, y + h);
+      ctx.stroke();
+    }
+
+    function drawCRTPixelGridOverlay(x, y, w, h) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+      for (let i = y; i < y + h; i += 4) {
+        ctx.fillRect(x, i, w, 2);
+      }
+      
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.04)';
+      ctx.lineWidth = 1;
+      for (let j = x; j < x + w; j += 6) {
+        ctx.beginPath();
+        ctx.moveTo(j, y);
+        ctx.lineTo(j, y + h);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function renderCanvasWindowsModal() {
+      if (appState === 'MONITORING') return;
+
+      canvasHitboxes = [];
+      const viewW = window.innerWidth;
+      const viewH = window.innerHeight;
+
+      const winW = Math.min(620, viewW - 24);
+      const winH = (appState === 'SETUP_UPLOAD') ? 320 : 325;
+      const winX = (viewW - winW) / 2;
+      const winY = (viewH - winH) / 2;
+
+      ctx.save();
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+      ctx.fillRect(winX + 8, winY + 8, winW, winH);
+
+      drawWin95RaisedBox(winX, winY, winW, winH, '#c0c0c0');
+
+      const headerH = 32;
+      const titleGrad = ctx.createLinearGradient(winX + 3, winY + 3, winX + winW - 3, winY + 3);
+      titleGrad.addColorStop(0, '#000080');
+      titleGrad.addColorStop(1, '#1084d0');
+      ctx.fillStyle = titleGrad;
+      ctx.fillRect(winX + 3, winY + 3, winW - 6, headerH);
+
+      ctx.font = 'bold 15px "Courier New", monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'left';
+      ctx.fillText('DREAM_MEMORY_INITIALIZER.EXE', winX + 12, winY + 22);
+
+      drawWin95RaisedBox(winX + winW - 26, winY + 5, 22, 22, '#c0c0c0');
+      ctx.font = 'bold 13px "Courier New", monospace';
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = 'center';
+      ctx.fillText('X', winX + winW - 15, winY + 20);
+
+      const bodyX = winX + 10;
+      const bodyY = winY + headerH + 8;
+      const bodyW = winW - 20;
+      const bodyH = winH - headerH - 18;
+      drawWin95SunkenBox(bodyX, bodyY, bodyW, bodyH, '#ece9d8');
+
+      ctx.textAlign = 'left';
+
+      if (appState === 'SETUP_UPLOAD') {
+        ctx.fillStyle = '#000080';
+        ctx.font = 'bold 15px "Courier New", monospace';
+        ctx.fillText('MEMORY INITIALIZATION (0/3)', bodyX + 18, bodyY + 32);
+
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillText('Select a memory photo to generate quantum particles:', bodyX + 18, bodyY + 68);
+
+        ctx.fillStyle = '#555555';
+        ctx.font = '14px "Courier New", monospace';
+        ctx.fillText('Supported formats: JPG, PNG, WEBP', bodyX + 18, bodyY + 96);
+
+        const btnW = 380;
+        const btnH = 60;
+        const btnX = bodyX + (bodyW - btnW) / 2;
+        const btnY = bodyY + 140;
+
+        const isHover = (mouseHoverIndex === 0);
+        drawWin95RaisedBox(btnX, btnY, btnW, btnH, isHover ? '#000080' : '#c0c0c0');
+
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillStyle = isHover ? '#ffffff' : '#000000';
+        ctx.textAlign = 'center';
+        ctx.fillText('📁 [ UPLOAD MEMORY PHOTO ]', btnX + btnW / 2, btnY + 36);
+
+        canvasHitboxes.push({
+          index: 0,
+          x: btnX, y: btnY, w: btnW, h: btnH,
+          action: 'UPLOAD'
+        });
+
+      } else if (appState === 'SETUP_QUESTIONS') {
+        const qData = questions[questionStep];
+
+        ctx.fillStyle = '#000080';
+        ctx.font = 'bold 14px "Courier New", monospace';
+        ctx.fillText(qData.stepTag, bodyX + 18, bodyY + 26);
+
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 15px "Courier New", monospace';
+        ctx.fillText(qData.title, bodyX + 18, bodyY + 52);
+
+        const optH = 46;
+        const optGap = 10;
+        const optStartY = bodyY + 70;
+
+        qData.options.forEach((opt, idx) => {
+          const ox = bodyX + 16;
+          const oy = optStartY + idx * (optH + optGap);
+          const ow = bodyW - 32;
+
+          const isHover = (mouseHoverIndex === idx);
+          drawWin95RaisedBox(ox, oy, ow, optH, isHover ? '#000080' : '#c0c0c0');
+
+          ctx.font = 'bold 15px "Courier New", monospace';
+          ctx.fillStyle = isHover ? '#ffffff' : '#000000';
+          ctx.textAlign = 'left';
+          ctx.fillText(opt.text, ox + 16, oy + 29);
+
+          canvasHitboxes.push({
+            index: idx,
+            x: ox, y: oy, w: ow, h: optH,
+            action: 'OPTION',
+            data: opt
+          });
+        });
+
+        const progX = bodyX + 16;
+        const progY = optStartY + 3 * (optH + optGap) + 6;
+        const progW = bodyW - 32;
+        const progH = 18;
+
+        drawWin95SunkenBox(progX, progY, progW, progH, '#ffffff');
+
+        const fillRatio = (questionStep + 1) / questions.length;
+        const fillW = Math.floor((progW - 6) * fillRatio);
+
+        const blockW = 10;
+        const blockGap = 3;
+        const totalBlocks = Math.floor(fillW / (blockW + blockGap));
+
+        ctx.fillStyle = '#000080';
+        for (let b = 0; b < totalBlocks; b++) {
+          const bx = progX + 3 + b * (blockW + blockGap);
+          if (bx + blockW <= progX + progW - 3) {
+            ctx.fillRect(bx, progY + 3, blockW, progH - 6);
+          }
+        }
+      }
+
+      drawCRTPixelGridOverlay(bodyX, bodyY, bodyW, bodyH);
+
+      ctx.restore();
+    }
+
+    class Particle {
+      constructor(originX, originY, r, g, b, a) {
+        this.originX = originX;
+        this.originY = originY;
+        this.x = originX + (Math.random() - 0.5) * 160;
+        this.y = originY + (Math.random() - 0.5) * 160;
+        this.vx = (Math.random() - 0.5) * 2;
+        this.vy = (Math.random() - 0.5) * 2;
+        this.r = r;
+        this.g = g;
+        this.b = b;
+        this.baseAlpha = a;
+        this.size = Math.random() * 2.2 + 1.2;
+        this.turbulenceSeed = Math.random() * Math.PI * 2;
+      }
+
+      // 觸發全域大幅度震撼衝擊 (強烈爆發位移)
+      shatterImpulse(force = 35) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = Math.random() * force + 15;
+        this.x += Math.cos(angle) * dist;
+        this.y += Math.sin(angle) * dist;
+        this.vx += (Math.random() - 0.5) * force * 1.5;
+        this.vy += (Math.random() - 0.5) * force * 1.5;
+      }
+
+      update() {
+        const viewW = window.innerWidth;
+        const viewH = window.innerHeight;
+        const centerX = viewW / 2;
+        const centerY = viewH / 2;
+
+        const targetX = centerX + (this.originX - centerX) * photoScale;
+        const targetY = centerY + (this.originY - centerY) * photoScale;
+
+        const dx = targetX - this.x;
+        const dy = targetY - this.y;
+        const spring = 0.018;
+
+        this.vx += dx * spring;
+        this.vy += dy * spring;
+
+        // 支援雙手風力彈開
+        handsList.forEach(hPoint => {
+          if (hPoint.active) {
+            const hdx = this.x - hPoint.x;
+            const hdy = this.y - hPoint.y;
+            const distSq = hdx * hdx + hdy * hdy;
+            const radius = physicsConfig.scatterPower * 1.5;
+
+            if (distSq < radius * radius && distSq > 0) {
+              const dist = Math.sqrt(distSq);
+              const windFactor = (1 - dist / radius) * physicsConfig.windForce;
+              const dispersionAngle = (Math.random() - 0.5) * 0.6;
+              
+              const dirX = (hdx / dist);
+              const dirY = (hdy / dist);
+
+              this.vx += (dirX * Math.cos(dispersionAngle) - dirY * Math.sin(dispersionAngle)) * windFactor;
+              this.vy += (dirX * Math.sin(dispersionAngle) + dirY * Math.cos(dispersionAngle)) * windFactor;
+            }
+          }
+        });
+
+        // 持續的全域震動衰減（Shockwave Jitter）
+        if (globalShockwave > 0) {
+          const shakeFactor = globalShockwave * 0.8;
+          this.vx += (Math.random() - 0.5) * shakeFactor;
+          this.vy += (Math.random() - 0.5) * shakeFactor;
+        }
+
+        // Ambient Air Drift
+        this.turbulenceSeed += 0.05;
+        this.vx += Math.cos(this.turbulenceSeed) * 0.2;
+        this.vy += Math.sin(this.turbulenceSeed) * 0.2;
+
+        // Friction
+        this.vx *= 0.88;
+        this.vy *= 0.88;
+
+        this.x += this.vx;
+        this.y += this.vy;
+      }
+
+      draw(alphaMultiplier = 1.0) {
+        if (this.baseAlpha <= 0.01) return;
+
+        const effectiveAlpha = Math.max(0, Math.min(1, this.baseAlpha * alphaMultiplier));
+        ctx.fillStyle = `rgba(${this.r},${this.g},${this.b},${effectiveAlpha})`;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+      }
+    }
+
+    function initHandTracking() {
+      addLog("INITIALIZING MEDIAPIPE DUAL-HAND TRACKING AI...");
+      
+      handsDetector = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      handsDetector.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.65,
+        minTrackingConfidence: 0.65
+      });
+
+      handsDetector.onResults(onHandResults);
+
+      cameraInstance = new Camera(webcamVideo, {
+        onFrame: async () => {
+          if (appState === 'MONITORING') {
+            await handsDetector.send({ image: webcamVideo });
+          }
+        },
+        width: 640,
+        height: 480
+      });
+
+      cameraInstance.start().then(() => {
+        camStatus.innerText = "[ CAM: ACTIVE ]";
+        camStatus.classList.add('active');
+        addLog("AI DUAL-HAND TRACKING READY. STANDBY UNTIL DREAM INITIALIZED.");
+      }).catch(err => {
+        camStatus.innerText = "[ CAM: ERROR ]";
+        addLog("CAMERA ERROR: " + err.message);
+      });
+    }
+
+    // 判斷是否為握拳 (Fist) 的輔助函式
+    function checkIsFist(landmarks) {
+      const wrist = landmarks[0];
+      const fingerTips = [8, 12, 16, 20];
+      const fingerMpcs = [5, 9, 13, 17];
+
+      let foldedFingers = 0;
+      for (let i = 0; i < fingerTips.length; i++) {
+        const tip = landmarks[fingerTips[i]];
+        const mpc = landmarks[fingerMpcs[i]];
+
+        const tipDist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+        const mpcDist = Math.hypot(mpc.x - wrist.x, mpc.y - wrist.y);
+
+        if (tipDist < mpcDist * 1.15) {
+          foldedFingers++;
+        }
+      }
+      return foldedFingers >= 3;
+    }
+
+    // 觸發全體粒子強烈震動
+    function triggerAllParticlesShake() {
+      globalShockwave = 25; // 設定 25 影格的持續劇烈餘震
+      for (let i = 0; i < particles.length; i++) {
+        particles[i].shatterImpulse(45); // 所有粒子全面爆發強烈位移
+      }
+    }
+
+    function onHandResults(results) {
+      if (appState !== 'MONITORING') return;
+
+      const detectedHands = results.multiHandLandmarks || [];
+      const now = Date.now();
+
+      // 重設雙手狀態
+      for (let i = 0; i < 2; i++) {
+        if (i < detectedHands.length) {
+          const landmarks = detectedHands[i];
+          const indexTip = landmarks[8];
+
+          const newX = (1 - indexTip.x) * window.innerWidth;
+          const newY = indexTip.y * window.innerHeight;
+
+          if (handsList[i].prevX !== -9999) {
+            const dx = newX - handsList[i].prevX;
+            const dy = newY - handsList[i].prevY;
+            handsList[i].speed = Math.sqrt(dx * dx + dy * dy);
+          }
+
+          // 檢測握拳狀態
+          handsList[i].wasFist = handsList[i].isFist;
+          handsList[i].isFist = checkIsFist(landmarks);
+
+          // 若從「張開」變為「握拳/捉住」，觸發全體粒子強烈震動！
+          if (!handsList[i].wasFist && handsList[i].isFist) {
+            triggerAllParticlesShake();
+            addLog(`[GESTURE_GRAB] HAND_${i} FIST DETECTED - ALL PARTICLES SHAKING!`);
+          }
+
+          handsList[i].prevX = handsList[i].x;
+          handsList[i].prevY = handsList[i].y;
+          handsList[i].x = newX;
+          handsList[i].y = newY;
+          handsList[i].active = true;
+
+          lastHandDetectedTime = now;
+        } else {
+          handsList[i].active = false;
+          handsList[i].isFist = false;
+          handsList[i].wasFist = false;
+          handsList[i].prevX = -9999;
+          handsList[i].prevY = -9999;
+        }
+      }
+
+      if (detectedHands.length > 0 && now - lastHandMoveLogTime > 350) {
+        addLog(`[DUAL_HAND] HANDS_ACTIVE: ${detectedHands.length} | POS0: (${Math.round(handsList[0].x)}, ${Math.round(handsList[0].y)})`);
+        lastHandMoveLogTime = now;
+      }
+    }
+
+    // 渲染 Dreamcore 風格手勢指示器
+    function drawHandReticle() {
+      if (appState !== 'MONITORING') return;
+
+      dreamcoreAnimAngle += 0.025;
+
+      handsList.forEach((hPoint, idx) => {
+        if (!hPoint.active) return;
+
+        ctx.save();
+        ctx.translate(hPoint.x, hPoint.y);
+
+        // 外層微弱光暈
+        const glowGrad = ctx.createRadialGradient(0, 0, 5, 0, 0, 48);
+        glowGrad.addColorStop(0, hPoint.isFist ? 'rgba(255, 100, 100, 0.6)' : 'rgba(255, 230, 255, 0.4)');
+        glowGrad.addColorStop(0.5, hPoint.isFist ? 'rgba(255, 50, 50, 0.3)' : 'rgba(180, 140, 255, 0.15)');
+        glowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, 48, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 旋轉圓環
+        ctx.save();
+        ctx.rotate(-dreamcoreAnimAngle * 0.8);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, 32, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+
+        // 迷幻幾何圓環
+        ctx.save();
+        ctx.rotate(dreamcoreAnimAngle);
+        ctx.strokeStyle = hPoint.isFist ? '#ff4d4d' : '#ff9ff3';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(0, 0, 22, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#54a0ff';
+        ctx.beginPath();
+        ctx.moveTo(-28, 0); ctx.lineTo(-16, 0);
+        ctx.moveTo(16, 0);  ctx.lineTo(28, 0);
+        ctx.moveTo(0, -28); ctx.lineTo(0, -16);
+        ctx.moveTo(0, 16);  ctx.lineTo(0, 28);
+        ctx.stroke();
+        ctx.restore();
+
+        // 眼睛弧線
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-16, 0);
+        ctx.quadraticCurveTo(0, -14, 16, 0);
+        ctx.quadraticCurveTo(0, 14, -16, 0);
+        ctx.stroke();
+
+        // 中心亮點
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 4 + Math.sin(dreamcoreAnimAngle * 3) * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 標註文字
+        ctx.font = '12px "Courier New", monospace';
+        ctx.fillStyle = '#feca57';
+        ctx.textAlign = 'left';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 4;
+        const labelText = hPoint.isFist ? "CLUTCHING_DREAM" : (idx === 0 ? "have_you_been_here?" : "this_is_a_dream");
+        ctx.fillText(`? ${labelText}`, 28, 4);
+
+        ctx.restore();
+      });
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (appState === 'MONITORING') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      let hoverIdx = -1;
+      canvasHitboxes.forEach(hb => {
+        if (mx >= hb.x && mx <= hb.x + hb.w && my >= hb.y && my <= hb.y + hb.h) {
+          hoverIdx = hb.index;
+        }
+      });
+      mouseHoverIndex = hoverIdx;
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (appState === 'MONITORING') return;
+
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+
+      canvasHitboxes.forEach(hb => {
+        if (cx >= hb.x && cx <= hb.x + hb.w && cy >= hb.y && cy <= hb.y + hb.h) {
+          if (hb.action === 'UPLOAD') {
+            photoUploadInput.click();
+          } else if (hb.action === 'OPTION') {
+            selectQuestionOption(hb.data);
+          }
+        }
+      });
+    });
+
+    function selectQuestionOption(opt) {
+      if (opt.mode !== undefined) {
+        physicsConfig.zoomMode = opt.mode;
+        if (opt.mode === 'shrink') photoScale = 0.5; 
+        if (opt.mode === 'expand') photoScale = 1.4; 
+        if (opt.mode === 'pulse') photoScale = 1.0;
+      }
+      if (opt.scatterPower !== undefined) physicsConfig.scatterPower = opt.scatterPower;
+      if (opt.windForce !== undefined) physicsConfig.windForce = opt.windForce;
+
+      addLog(`[OPTION_SELECTED] ${opt.text.substring(0, 28)}...`);
+
+      questionStep++;
+      if (questionStep >= questions.length) {
+        appState = 'MONITORING';
+        lastHandDetectedTime = Date.now();
+        lastHandMoveLogTime = Date.now();
+        handsList = [
+          { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false },
+          { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false }
+        ];
+        logRibbon.style.display = 'flex';
+        addLog("ALL QUESTIONS ANSWERED. REVEALING QUANTUM PARTICLES & DUAL-HAND MONITORING STARTED.");
+      }
+    }
+
+    function processUploadedImage(img) {
+      const maxDim = 380;
+      let w = img.width;
+      let h = img.height;
+
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(img, 0, 0, w, h);
+
+      const imgData = tempCtx.getImageData(0, 0, w, h).data;
+      particles = [];
+
+      const startX = (window.innerWidth - w) / 2;
+      const startY = (window.innerHeight - h) / 2;
+
+      const step = 2;
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4;
+          const a = imgData[idx + 3];
+          if (a > 45) {
+            const r = imgData[idx];
+            const g = imgData[idx + 1];
+            const b = imgData[idx + 2];
+            particles.push(new Particle(startX + x, startY + y, r, g, b, a / 255));
+          }
+        }
+      }
+
+      appState = 'SETUP_QUESTIONS';
+      questionStep = 0;
+      photoScale = 1.0;
+    }
+
+    photoUploadInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        addLog(`[FILE_UPLOAD] LOADED PHOTO: ${file.name}`);
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const img = new Image();
+          img.onload = () => processUploadedImage(img);
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    function triggerShatterEffect(callback) {
+      const overlay = document.getElementById('shatterOverlay');
+      const body = document.getElementById('bodyRoot');
+
+      overlay.innerHTML = '';
+      const shardCount = 14;
+
+      for (let i = 0; i < shardCount; i++) {
+        const shard = document.createElement('div');
+        shard.className = 'shatter-shard';
+
+        const p1 = `${Math.floor(Math.random() * 40)}% ${Math.floor(Math.random() * 40)}%`;
+        const p2 = `${Math.floor(60 + Math.random() * 40)}% ${Math.floor(Math.random() * 40)}%`;
+        const p3 = `${Math.floor(60 + Math.random() * 40)}% ${Math.floor(60 + Math.random() * 40)}%`;
+        const p4 = `${Math.floor(Math.random() * 40)}% ${Math.floor(60 + Math.random() * 40)}%`;
+        shard.style.clipPath = `polygon(${p1}, ${p2}, ${p3}, ${p4})`;
+
+        const dx1 = (Math.random() - 0.5) * 140 + 'px';
+        const dy1 = (Math.random() - 0.5) * 140 + 'px';
+        const r1 = (Math.random() - 0.5) * 25 + 'deg';
+        const dx3 = (Math.random() - 0.5) * 480 + 'px';
+        const dy3 = (Math.random() - 0.5) * 480 + 'px';
+        const r3 = (Math.random() - 0.5) * 100 + 'deg';
+
+        shard.style.setProperty('--dx1', dx1);
+        shard.style.setProperty('--dy1', dy1);
+        shard.style.setProperty('--r1', r1);
+        shard.style.setProperty('--dx3', dx3);
+        shard.style.setProperty('--dy3', dy3);
+        shard.style.setProperty('--r3', r3);
+
+        overlay.appendChild(shard);
+      }
+
+      body.classList.add('shatter-active', 'body-shatter-jitter');
+
+      setTimeout(() => {
+        if (callback) callback();
+      }, 380);
+
+      setTimeout(() => {
+        body.classList.remove('shatter-active', 'body-shatter-jitter');
+        overlay.innerHTML = '';
+      }, 820);
+    }
+
+    homeBtn.addEventListener('click', () => {
+      triggerShatterEffect(() => {
+        particles = [];
+        appState = 'SETUP_UPLOAD';
+        questionStep = 0;
+        mouseHoverIndex = -1;
+        handsList = [
+          { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false },
+          { x: -9999, y: -9999, prevX: -9999, prevY: -9999, active: false, speed: 0, isFist: false, wasFist: false }
+        ];
+        logRibbon.style.display = 'none';
+        photoUploadInput.value = '';
+        addLog("[SYSTEM_RESET] RETURNED TO HOMEPAGE.");
+      });
+    });
+
+    recBtn.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        recBtn.classList.remove('recording');
+        recBtn.innerText = '[ 🔴 REC MP4 ]';
+      } else {
+        addLog(`[RECORDER] START RECORDING CANVAS STREAM`);
+        recordedChunks = [];
+        const stream = canvas.captureStream(60);
+
+        let options = {};
+        if (MediaRecorder.isTypeSupported('video/mp4;codecs=avc1')) {
+          options = { mimeType: 'video/mp4;codecs=avc1' };
+        } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+          options = { mimeType: 'video/mp4' };
+        } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
+          options = { mimeType: 'video/webm;codecs=vp9' };
+        }
+
+        try {
+          mediaRecorder = new MediaRecorder(stream, options);
+        } catch (e) {
+          mediaRecorder = new MediaRecorder(stream);
+        }
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const isMp4 = options.mimeType && options.mimeType.includes('mp4');
+          const ext = isMp4 ? 'mp4' : 'webm';
+          const blob = new Blob(recordedChunks, { type: options.mimeType || 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `dream_monitor_${Date.now()}.${ext}`;
+          a.click();
+          URL.revokeObjectURL(url);
+          addLog(`[RECORDER] EXPORTED VIDEO FILE: dream_monitor.${ext}`);
+        };
+
+        mediaRecorder.start();
+        recBtn.classList.add('recording');
+        recBtn.innerText = '[ ⏹️ STOP ]';
+      }
+    });
+
+    exportLogBtn.addEventListener('click', () => {
+      addLog(`[SYSTEM] LOG EXPORTED AS TXT FILE`);
+      const logContent = systemLogs.join('\r\n');
+      const blob = new Blob([logContent], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `system_log_${Date.now()}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    function animate() {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      if (globalShockwave > 0) {
+        globalShockwave *= 0.88; // 震動波逐影格遞減
+      }
+
+      if (appState === 'MONITORING') {
+        const activeHands = handsList.filter(h => h.active);
+        const activeCount = activeHands.length;
+        const totalSpeed = activeHands.reduce((sum, h) => sum + h.speed, 0);
+
+        if (physicsConfig.zoomMode === 'shrink') {
+          const handSpeedBonus = activeCount > 0 ? Math.min(3.0, 1.0 + totalSpeed * 0.08) : 1.0;
+          photoScale -= 0.005 * handSpeedBonus;
+          if (photoScale < 0.01) photoScale = 0.01;
+
+        } else if (physicsConfig.zoomMode === 'expand') {
+          const handSpeedBonus = activeCount > 0 ? Math.min(3.0, 1.0 + totalSpeed * 0.08) : 1.0;
+          photoScale += 0.007 * handSpeedBonus;
+
+        } else if (physicsConfig.zoomMode === 'pulse') {
+          if (activeCount > 0) {
+            const handSpeedBonus = Math.min(3.0, 1.0 + totalSpeed * 0.1);
+            const randomDelta = (Math.random() - 0.48) * 0.14 * handSpeedBonus;
+            photoScale += randomDelta;
+            if (photoScale < 0.2) photoScale = 0.2 + Math.random() * 0.3;
+            if (photoScale > 2.5) photoScale = 2.5 - Math.random() * 0.3;
+          } else {
+            photoScale += (Math.random() - 0.5) * 0.05;
+            if (photoScale < 0.4) photoScale = 0.6;
+            if (photoScale > 2.0) photoScale = 1.8;
+          }
+        }
+
+        let alphaMultiplier = 1.0;
+
+        const idleTime = Date.now() - lastHandDetectedTime;
+        if (idleTime > 10000) {
+          const fadeProgress = Math.min(1.0, (idleTime - 10000) / 3000);
+          alphaMultiplier = 1.0 - fadeProgress * 0.95;
+          logRibbon.style.opacity = (1.0 - fadeProgress * 0.85).toString();
+        }
+
+        for (let i = 0; i < particles.length; i++) {
+          particles[i].update();
+          particles[i].draw(alphaMultiplier);
+        }
+
+        drawHandReticle();
+      }
+
+      renderCanvasWindowsModal();
+
+      requestAnimationFrame(animate);
+    }
+
+    initHandTracking();
+    animate();
+  </script>
+</body>
+</html>

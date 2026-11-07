@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>批量相片大粒子模糊生成器 (HEIC 支援 / PNG 輸出)</title>
+
+  <!-- JSZip 用於打包下載全部圖片 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- heic2any 用於轉譯 iOS 的 HEIC 格式圖片 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      background-color: #111;
+      font-family: "Courier New", monospace;
+      color: #fff;
+      overflow-x: hidden;
+    }
+
+    /* 頂部控制列 */
+    .top-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: #c0c0c0;
+      padding: 12px 20px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      border-bottom: 2px solid #ffffff;
+      box-shadow: 0px 2px 5px rgba(0,0,0,0.5);
+    }
+
+    /* Windows 95 風格按鈕 */
+    .btn-win {
+      background: #c0c0c0;
+      color: #000000;
+      border-top: 2px solid #ffffff;
+      border-left: 2px solid #ffffff;
+      border-right: 2px solid #404040;
+      border-bottom: 2px solid #404040;
+      padding: 8px 16px;
+      font-family: "Courier New", monospace;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 1px 1px 0px #000000;
+      outline: none;
+    }
+
+    .btn-win:active {
+      border-top: 2px solid #404040;
+      border-left: 2px solid #404040;
+      border-right: 2px solid #ffffff;
+      border-bottom: 2px solid #ffffff;
+      padding: 9px 15px 7px 17px;
+    }
+
+    .btn-win:disabled {
+      color: #808080;
+      cursor: not-allowed;
+    }
+
+    .status-text {
+      color: #000080;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    #photoUploadInput {
+      display: none;
+    }
+
+    /* 主要畫廊顯示區域 */
+    .gallery-container {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+
+    .particle-card {
+      background: #c0c0c0;
+      border-top: 2px solid #ffffff;
+      border-left: 2px solid #ffffff;
+      border-right: 2px solid #404040;
+      border-bottom: 2px solid #404040;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
+    }
+
+    .particle-card .card-header {
+      width: 100%;
+      background: #000080;
+      color: #fff;
+      font-size: 12px;
+      padding: 3px 6px;
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .particle-card canvas {
+      background: #000;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1 / 1;
+      border: 1px solid #404040;
+    }
+
+    .particle-card .card-footer {
+      width: 100%;
+      margin-top: 8px;
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    /* 空狀態提示 */
+    .empty-dropzone {
+      grid-column: 1 / -1;
+      height: 60vh;
+      border: 3px dashed #666;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: #aaa;
+      font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="top-bar">
+    <button class="btn-win" onclick="document.getElementById('photoUploadInput').click()">📁 上傳批量相片 (支援 HEIC, 最多50張)</button>
+    <button class="btn-win" id="downloadAllBtn" disabled>💾 一次過下載全部 PNG 粒子圖片 (.ZIP)</button>
+    <button class="btn-win" id="clearBtn">🗑️ 清除全部</button>
+    <span class="status-text" id="statusText">請選擇或拖放圖片檔案...</span>
+  </div>
+
+  <input type="file" id="photoUploadInput" accept="image/*,.heic,.HEIC,.heif,.HEIF" multiple>
+
+  <div class="gallery-container" id="galleryContainer">
+    <div class="empty-dropzone" id="dropZone">
+      <p>拖放相片至此處，或點擊上方按鈕上傳 (支援 JPG, PNG, WEBP, HEIC 等格式)</p>
+    </div>
+  </div>
+
+  <script>
+    const photoUploadInput = document.getElementById('photoUploadInput');
+    const galleryContainer = document.getElementById('galleryContainer');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const statusText = document.getElementById('statusText');
+    const dropZone = document.getElementById('dropZone');
+
+    // 存放生成的圖片 Canvas 資料
+    let generatedItems = [];
+
+    // 處理檔案選擇
+    photoUploadInput.addEventListener('change', (e) => {
+      handleFiles(e.target.files);
+    });
+
+    // 支援拖放功能
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files);
+      }
+    });
+
+    async function handleFiles(files) {
+      const fileList = Array.from(files).filter(f => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        return f.type.startsWith('image/') || ext === 'heic' || ext === 'heif';
+      });
+
+      if (fileList.length === 0) return;
+
+      if (fileList.length > 50) {
+        alert('建議一次最多處理 50 張相片，已自動截取前 50 張。');
+        fileList.length = 50;
+      }
+
+      if (dropZone) dropZone.remove();
+
+      statusText.innerText = `正在處理 0 / ${fileList.length} 張圖片...`;
+      
+      let processedCount = 0;
+
+      for (const file of fileList) {
+        try {
+          let blob = file;
+          const ext = file.name.split('.').pop().toLowerCase();
+
+          // 若為 HEIC / HEIF 格式，使用 heic2any 轉換為可讀取的 Blob
+          if (ext === 'heic' || ext === 'heif') {
+            statusText.innerText = `正在解碼 HEIC 相片 (${file.name})...`;
+            const convertedBlob = await heic2any({
+              blob: file,
+              toType: "image/png"
+            });
+            blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+          }
+
+          await processImageFile(blob, file.name);
+        } catch (err) {
+          console.error(`解析檔案 ${file.name} 失敗:`, err);
+        }
+
+        processedCount++;
+        statusText.innerText = `正在處理 ${processedCount} / ${fileList.length} 張圖片...`;
+      }
+
+      statusText.innerText = `完成！共生成 ${generatedItems.length} 張 PNG 粒子圖片。`;
+      if (generatedItems.length > 0) {
+        downloadAllBtn.disabled = false;
+      }
+    }
+
+    function processImageFile(fileBlob, originalFileName) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const img = new Image();
+          img.onload = () => {
+            createParticleCanvas(img, originalFileName);
+            resolve();
+          };
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(fileBlob);
+      });
+    }
+
+    // 將單張相片轉換為大粒子、模糊看不清的靜態粒子畫布
+    function createParticleCanvas(img, originalFileName) {
+      // 降低像素解析採樣上限（讓整體影像解析度降低、更模糊）
+      const maxDim = 120; 
+      let w = img.width;
+      let h = img.height;
+
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+
+      // 使用隱藏 Canvas 取得相片像素資料
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(img, 0, 0, w, h);
+      const imgData = tempCtx.getImageData(0, 0, w, h).data;
+
+      // 建立顯示用的 Canvas（輸出較大尺寸）
+      const outputScale = 3.5; // 放大比例，配合大粒子
+      const renderW = Math.round(w * outputScale);
+      const renderH = Math.round(h * outputScale);
+
+      const card = document.createElement('div');
+      card.className = 'particle-card';
+
+      // 格式化輸出檔名：統一改為 .png
+      const baseName = originalFileName.replace(/\.[^/.]+$/, "");
+      const pngFileName = `particle_${baseName}.png`;
+
+      const header = document.createElement('div');
+      header.className = 'card-header';
+      header.innerText = pngFileName;
+
+      const pCanvas = document.createElement('canvas');
+      pCanvas.width = renderW;
+      pCanvas.height = renderH;
+      const pCtx = pCanvas.getContext('2d');
+
+      // 背景塗黑
+      pCtx.fillStyle = '#000000';
+      pCtx.fillRect(0, 0, renderW, renderH);
+
+      // 繪製大粒子與增加模糊離散度
+      const step = 2; // 採樣步進值
+      for (let y = 0; y < h; y += step) {
+        for (let x = 0; x < w; x += step) {
+          const idx = (y * w + x) * 4;
+          const a = imgData[idx + 3];
+          if (a > 40) {
+            const r = imgData[idx];
+            const g = imgData[idx + 1];
+            const b = imgData[idx + 2];
+            
+            // 將座標映射到放大的 Canvas
+            const px = x * outputScale;
+            const py = y * outputScale;
+
+            // 大粒子尺寸 (較大且有動態變化)
+            const particleSize = Math.random() * 5.5 + 4.5;
+
+            // 較大的隨機偏移量，增加視覺上的模糊與離散看不清感
+            const offsetX = (Math.random() - 0.5) * 6.5;
+            const offsetY = (Math.random() - 0.5) * 6.5;
+
+            // 微調透明度增加疊加模糊感
+            const alpha = (a / 255) * (Math.random() * 0.3 + 0.7);
+
+            pCtx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+            
+            // 繪製較大的方形/圓形粒子效果
+            pCtx.fillRect(px + offsetX, py + offsetY, particleSize, particleSize);
+          }
+        }
+      }
+
+      // 單張圖片下載按鈕 (強制輸出 PNG)
+      const footer = document.createElement('div');
+      footer.className = 'card-footer';
+      const singleDlBtn = document.createElement('button');
+      singleDlBtn.className = 'btn-win';
+      singleDlBtn.innerText = '💾 下載 PNG';
+      singleDlBtn.onclick = () => {
+        const link = document.createElement('a');
+        link.download = pngFileName;
+        link.href = pCanvas.toDataURL('image/png');
+        link.click();
+      };
+      footer.appendChild(singleDlBtn);
+
+      card.appendChild(header);
+      card.appendChild(pCanvas);
+      card.appendChild(footer);
+      galleryContainer.appendChild(card);
+
+      generatedItems.push({
+        name: pngFileName,
+        canvas: pCanvas
+      });
+    }
+
+    // 批量 Zip 打包下載 (全部為 PNG)
+    downloadAllBtn.addEventListener('click', () => {
+      if (generatedItems.length === 0) return;
+
+      statusText.innerText = '正在打包 PNG 圖片 Zip 檔案...';
+      const zip = new JSZip();
+
+      generatedItems.forEach((item) => {
+        const dataUrl = item.canvas.toDataURL('image/png');
+        const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+        zip.file(item.name, base64Data, { base64: true });
+      });
+
+      zip.generateAsync({ type: "blob" }).then((content) => {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(content);
+        link.download = `particle_avatars_PNG_${Date.now()}.zip`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        statusText.innerText = '下載完成！';
+      });
+    });
+
+    // 清除按鈕
+    clearBtn.addEventListener('click', () => {
+      galleryContainer.innerHTML = `
+        <div class="empty-dropzone" id="dropZone">
+          <p>拖放相片至此處，或點擊上方按鈕上傳 (支援 JPG, PNG, WEBP, HEIC 等格式)</p>
+        </div>
+      `;
+      generatedItems = [];
+      downloadAllBtn.disabled = true;
+      statusText.innerText = '已清除，請重新選擇相片...';
+      photoUploadInput.value = '';
+    });
+  </script>
+</body>
+</html>

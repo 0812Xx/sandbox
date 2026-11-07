@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>Lab 項目列表</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      line-height: 1.6;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+    }
+    select, button {
+      padding: 8px 12px;
+      font-size: 14px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      background: #f8f9fa;
+      margin-bottom: 10px;
+      padding: 15px 20px;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .item-name {
+      font-weight: bold;
+      text-decoration: none;
+      color: #0969da;
+    }
+    .item-name:hover {
+      text-decoration: underline;
+    }
+    .item-date {
+      color: #6e7781;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Lab Projects</h1>
+
+  <div class="controls">
+    <label for="sortSelect">排序方式：</label>
+    <select id="sortSelect">
+      <option value="date-desc">日期 (由新到舊)</option>
+      <option value="date-asc">日期 (由舊到新)</option>
+      <option value="name-asc">名稱 (A -> Z)</option>
+      <option value="name-desc">名稱 (Z -> A)</option>
+    </select>
+  </div>
+
+  <ul id="projectList">
+    <li>載入中...</li>
+  </ul>
+
+  <script>
+    // ⚠️ 請修改為你的 GitHub 使用者名稱與 Repo 名稱
+    const GITHUB_USER = 'YOUR_GITHUB_USERNAME';
+    const REPO_NAME = 'YOUR_REPO_NAME';
+    const LAB_PATH = 'lab';
+
+    let projectsData = [];
+
+    // 解析資料夾名稱：例如 "Almost-Perfect_20261102"
+    function parseFolderName(folderName) {
+      const parts = folderName.split('_');
+      
+      // 取出日期部分（最後一節）
+      const dateRaw = parts.length > 1 ? parts.pop() : '';
+      
+      // 剩餘部分組合成名稱，並將 '-' 替換成空格 ' '
+      const rawName = parts.join('_'); 
+      const displayName = rawName.replace(/-/g, ' ');
+
+      // 格式化日期顯示 (如：20261102 -> 2026-11-02)
+      let formattedDate = dateRaw;
+      if (dateRaw.length === 8) {
+        formattedDate = `${dateRaw.substring(0, 4)}-${dateRaw.substring(4, 6)}-${dateRaw.substring(6, 8)}`;
+      }
+
+      return {
+        raw: folderName,
+        name: displayName,
+        date: formattedDate,
+        dateRaw: dateRaw, // 方便排序
+        path: `./${LAB_PATH}/${folderName}/index.html`
+      };
+    }
+
+    // 取得 lab 目錄列表
+    async function fetchLabFolders() {
+      const apiUrl = `https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/${LAB_PATH}`;
+      
+      try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error('無法取得目錄列表，請檢查 Repo 設定');
+        
+        const files = await response.json();
+
+        // 篩選出 dir (資料夾)
+        projectsData = files
+          .filter(item => item.type === 'dir')
+          .map(item => parseFolderName(item.name));
+
+        renderList();
+      } catch (error) {
+        console.error(error);
+        document.getElementById('projectList').innerHTML = `<li>讀取失敗：${error.message}</li>`;
+      }
+    }
+
+    // 根據選擇排序並繪製 UI
+    function renderList() {
+      const sortValue = document.getElementById('sortSelect').value;
+
+      projectsData.sort((a, b) => {
+        if (sortValue === 'date-desc') {
+          return b.dateRaw.localeCompare(a.dateRaw);
+        } else if (sortValue === 'date-asc') {
+          return a.dateRaw.localeCompare(b.dateRaw);
+        } else if (sortValue === 'name-asc') {
+          return a.name.localeCompare(b.name);
+        } else if (sortValue === 'name-desc') {
+          return b.name.localeCompare(a.name);
+        }
+      });
+
+      const listElement = document.getElementById('projectList');
+      listElement.innerHTML = '';
+
+      if (projectsData.length === 0) {
+        listElement.innerHTML = '<li>沒有找到任何子項目。</li>';
+        return;
+      }
+
+      projectsData.forEach(item => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <a class="item-name" href="${item.path}">${item.name}</a>
+          <span class="item-date">${item.date}</span>
+        `;
+        listElement.appendChild(li);
+      });
+    }
+
+    // 綁定排序選單變更事件
+    document.getElementById('sortSelect').addEventListener('change', renderList);
+
+    // 初始化執行
+    fetchLabFolders();
+  </script>
+</body>
+</html>
