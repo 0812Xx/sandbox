@@ -70,25 +70,29 @@
   </ul>
 
   <script>
-    // ⚠️ 請修改為你的 GitHub 使用者名稱與 Repo 名稱
-    const GITHUB_USER = 'YOUR_GITHUB_USERNAME';
-    const REPO_NAME = 'YOUR_REPO_NAME';
+    // 1. 自動獲取當前網址的 GitHub 帳號與 Repo
+    const hostParts = window.location.hostname.split('.');
+    const pathParts = window.location.pathname.split('/').filter(p => p.length > 0);
+
+    // 預設自動讀取，若在本地 (localhost) 測試則可保留 fallback 備用
+    const GITHUB_USER = hostParts[1] === 'github' ? hostParts[0] : 'YOUR_GITHUB_USERNAME';
+    const REPO_NAME = pathParts.length > 0 ? pathParts[0] : 'YOUR_REPO_NAME';
     const LAB_PATH = 'lab';
 
     let projectsData = [];
 
-    // 解析資料夾名稱：例如 "Almost-Perfect_20261102"
+    // 2. 解析資料夾名稱（如 "Almost-Perfect_20261102"）
     function parseFolderName(folderName) {
       const parts = folderName.split('_');
       
-      // 取出日期部分（最後一節）
+      // 取出日期部分
       const dateRaw = parts.length > 1 ? parts.pop() : '';
       
-      // 剩餘部分組合成名稱，並將 '-' 替換成空格 ' '
+      // 將名字裡的 '-' 換成空格 ' '
       const rawName = parts.join('_'); 
       const displayName = rawName.replace(/-/g, ' ');
 
-      // 格式化日期顯示 (如：20261102 -> 2026-11-02)
+      // 格式化日期 (20261102 -> 2026-11-02)
       let formattedDate = dateRaw;
       if (dateRaw.length === 8) {
         formattedDate = `${dateRaw.substring(0, 4)}-${dateRaw.substring(4, 6)}-${dateRaw.substring(6, 8)}`;
@@ -98,22 +102,26 @@
         raw: folderName,
         name: displayName,
         date: formattedDate,
-        dateRaw: dateRaw, // 方便排序
+        dateRaw: dateRaw,
         path: `./${LAB_PATH}/${folderName}/index.html`
       };
     }
 
-    // 取得 lab 目錄列表
+    // 3. 呼叫 GitHub API
     async function fetchLabFolders() {
       const apiUrl = `https://api.github.com/repos/${GITHUB_USER}/${REPO_NAME}/contents/${LAB_PATH}`;
       
       try {
         const response = await fetch(apiUrl);
-        if (!response.ok) throw new Error('無法取得目錄列表，請檢查 Repo 設定');
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error(`找不到 ${GITHUB_USER}/${REPO_NAME}/${LAB_PATH}，請確認 Repo 已公開且已 push 上 GitHub。`);
+          }
+          throw new Error(`HTTP 錯誤狀態：${response.status}`);
+        }
         
         const files = await response.json();
 
-        // 篩選出 dir (資料夾)
         projectsData = files
           .filter(item => item.type === 'dir')
           .map(item => parseFolderName(item.name));
@@ -125,7 +133,7 @@
       }
     }
 
-    // 根據選擇排序並繪製 UI
+    // 4. 排序與繪製
     function renderList() {
       const sortValue = document.getElementById('sortSelect').value;
 
@@ -159,10 +167,7 @@
       });
     }
 
-    // 綁定排序選單變更事件
     document.getElementById('sortSelect').addEventListener('change', renderList);
-
-    // 初始化執行
     fetchLabFolders();
   </script>
 </body>
